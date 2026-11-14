@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#fff6f0" />
+  <title>排队详情 · 本地演示</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="phone-shell">
+    <header class="hero">
+      <div class="safe-top"></div>
+      <div class="statusbar" aria-label="手机状态栏">
+        <strong id="statusTime">11:51</strong>
+        <span class="silent-icon" aria-hidden="true">◢</span>
+        <span class="status-spacer"></span>
+        <span class="signal" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <span class="wifi" aria-hidden="true"></span>
+        <span class="battery" aria-label="电量83%"><b>83</b><i></i></span>
+      </div>
+      <div class="navbar">
+        <button class="icon-button back" type="button" aria-label="返回" data-toast="这是本地演示页">‹</button>
+        <h1>排队详情</h1>
+        <span class="nav-placeholder"></span>
+      </div>
+      <div class="demo-badge"><span></span> 本地演示模式</div>
+    </header>
+
+    <section class="queue-card card">
+      <div class="clock-ribbon">当前时间&nbsp;&nbsp;<strong id="beijingClock">11:51:13</strong></div>
+      <div class="ticket-number">小桌 <strong id="ticketLabel">A85</strong></div>
+      <div class="queue-summary">还需等待 <em id="waitingCount">77</em> 桌，预计 <strong id="estimateText">大于30分钟</strong></div>
+
+      <div class="progress-wrap" aria-label="排队进度">
+        <div class="progress-line"><span id="progressFill"></span></div>
+        <div class="step step-done"><span>✓</span><b>取号成功</b></div>
+        <div class="step step-current"><span></span><b id="callingLabel">待叫号</b></div>
+        <div class="step step-future"><span></span><b>已就餐</b></div>
+      </div>
+
+      <div class="dot-divider"></div>
+
+      <div class="restaurant-row">
+        <h2>一緒に寿喜烧(武昌万象城店)<span>›</span></h2>
+        <label class="notify-control">进度通知 <input type="checkbox" id="notifyToggle" /><span></span></label>
+      </div>
+      <p class="meta">取号时间：<span id="pickupTime">11:48</span>（已等待 <span id="elapsedText">3分钟</span>）</p>
+      <p class="meta">手机号码：139****2913（线上取号）</p>
+      <div class="queue-actions">
+        <span>当月过号5次将无法取号，已过号1次</span>
+        <button type="button" data-toast="演示模式不会取消真实排队">取消排队</button>
+      </div>
+    </section>
+
+    <section class="parking-card card">
+      <div class="car-icon" aria-hidden="true"><span></span></div>
+      <strong>去打车</strong>
+      <button type="button" data-toast="本地演示页未连接打车服务">立即打车</button>
+    </section>
+
+    <section class="merchant-card card">
+      <div class="section-title">
+        <h2>商家说明 <small>♛ 黑金冠商家</small></h2>
+        <button type="button" data-toast="已展示全部商家说明">全部 ›</button>
+      </div>
+      <p>*因本店是自助餐，等位时间较长，给您造成不便，深感抱歉，请您谅解！</p>
+      <p>* 过号作废 *</p>
+      <p>叫号不接受打电话，过号作废，不顺延，请提前扫码了解排队进程，请前提5……</p>
+    </section>
+
+    <section class="deals-card card">
+      <h2>热销团购</h2>
+      <article class="deal">
+        <img src="assets/deal-1.jpg" alt="牛肉海鲜双人自助套餐" />
+        <div class="deal-main">
+          <h3>海鲜牛肉自助（双人）</h3>
+          <div class="deal-bottom"><p><strong>¥364</strong> <em>8.4折</em> <del>¥436</del><br><small>神券 已减9元</small></p><div><span>半年售 7000+</span><button type="button" data-toast="本地演示页无法购买">抢购</button></div></div>
+        </div>
+      </article>
+      <article class="deal">
+        <img src="assets/deal-2.jpg" alt="和牛畅吃单人自助套餐" />
+        <div class="deal-main">
+          <h3>单人【M级和牛畅吃】自助套餐</h3>
+          <div class="deal-bottom"><p><strong>¥230</strong> <em>9折</em> <del>¥258</del><br><small>神券 已减9元</small></p><div><span>半年售 2.7万+</span><button type="button" data-toast="本地演示页无法购买">抢购</button></div></div>
+        </div>
+      </article>
+      <article class="deal">
+        <img src="assets/deal-3.jpg" alt="基础牛肉畅吃单人套餐" />
+        <div class="deal-main">
+          <h3>开学季单人【节假日通用基础牛肉畅吃】</h3>
+          <div class="deal-bottom"><p><strong>¥140</strong> <em>7.1折</em> <del>¥198</del><br><small>神券 已减9元</small></p><div><span>半年售 4000+</span><button type="button" data-toast="本地演示页无法购买">抢购</button></div></div>
+        </div>
+      </article>
+    </section>
+
+    <div class="bottom-space"></div>
+
+    <button class="edit-fab" id="openEditor" type="button" aria-label="修改排队信息">
+      <span>✎</span><b>修改</b>
+    </button>
+  </main>
+
+  <div class="sheet-backdrop" id="sheetBackdrop" hidden></div>
+  <section class="editor-sheet" id="editorSheet" role="dialog" aria-modal="true" aria-labelledby="editorTitle" hidden>
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <div><span>本地演示设置</span><h2 id="editorTitle">调整排队进度</h2></div>
+      <button id="closeEditor" type="button" aria-label="关闭">×</button>
+    </div>
+    <div class="form-grid">
+      <label>我的号码<input id="ticketInput" inputmode="text" maxlength="6" value="A85" /></label>
+      <label>当前叫号<input id="calledInput" inputmode="text" maxlength="6" value="A08" /></label>
+      <label>每桌平均用时<input id="minutesInput" inputmode="decimal" type="number" min="0.5" max="20" step="0.5" value="2.5" /><span>分钟</span></label>
+      <label>取号时间<input id="pickupInput" type="time" value="11:48" /></label>
+    </div>
+    <div class="calculation-card">
+      <span>自动计算结果</span>
+      <strong id="sheetWaiting">前方 77 桌 · 约 193 分钟</strong>
+      <small id="arrivalText">预计叫号时间 15:04</small>
+    </div>
+    <p class="safety-note">仅用于本地界面演示和个人排队时间估算，不连接商家系统，也不会改变真实排队记录。</p>
+    <button class="save-button" id="saveSettings" type="button">保存并更新页面</button>
+  </section>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="app.js"></script>
+</body>
+</html>
