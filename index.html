@@ -176,11 +176,19 @@ dialog::backdrop{background:#19283c63}
 .dialog-body p{color:var(--muted);margin:0 0 8px}
 .picker-field{display:grid;grid-template-columns:70px 1fr;align-items:start;gap:8px;margin-bottom:10px}
 .picker-field>label{padding-top:7px}
-.picker-box input[type=search]{width:100%}
-.choices{margin-top:5px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;max-height:142px;overflow:auto}
-.choices label{display:flex;align-items:center;gap:6px;padding:3px 4px}
+.picker-box{position:relative;max-width:360px}
+.picker-input{display:flex;flex-wrap:wrap;align-items:center;gap:4px;padding:3px 6px;border:1px solid #dbe1e9;border-radius:5px;cursor:text}
+.picker-input:focus-within{border-color:#be9b60;box-shadow:0 0 0 1px #e8d8bc}
+.picker-box input[type=search]{flex:1 1 110px;min-width:0;padding:4px;border:0;outline:none}
+.choices{position:absolute;z-index:3;top:calc(100% + 4px);left:0;right:0;max-height:185px;overflow:auto;background:white;border:1px solid var(--line);border-radius:5px;box-shadow:0 5px 14px #1f365a20;padding:3px 0}
+.picker-toggle{padding:0 5px;border:0;background:transparent;color:var(--muted)}
+.choices button{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;padding:6px 9px;border:0;border-radius:0;text-align:left}
+.choices button:hover,.choices button:focus-visible{background:#f4f7fc}
+.choices button[aria-pressed=true]{color:var(--blue);background:#edf3ff}
+.choices .empty{display:block;padding:8px}
+#picker-body{min-height:min(275px,55vh)}
 input[type=checkbox]{accent-color:var(--blue)}
-.chips{display:flex;gap:4px;flex-wrap:wrap;margin:5px 0}
+.chips{display:contents}
 .chips button{padding:2px 6px;background:#f4f6fb;font-size:11px}
 #notice{margin:0;color:#a43d36}
 @media(max-width:1250px){.grid7{grid-template-columns:repeat(4,minmax(0,1fr))}}
@@ -729,7 +737,6 @@ function renderTokenResults() {
   renderChart("dimension-trend",labels,series,spec);
 }
 function userTrendLabel(metric) {
-  if (metric.id==="rate") return "AI 整体服务有效率";
   if (["requests","input","output","total"].includes(metric.id)) return "人均"+metric.label;
   return metric.label;
 }
@@ -741,46 +748,100 @@ function openUserPicker() {
   draft = Object.fromEntries(fields.map(field=>[field,new Set(token[field])]));
   document.querySelector("#picker-title").textContent = "筛选用户";
   document.querySelector("#picker-body").innerHTML = `<p>同时选择用户组和指定用户时，统计两者的并集，同一用户只计一次。</p>
-    ${fields.map(field=>`<div class="picker-field"><label for="search-${field}">${pickerLabels[field]}</label><div class="picker-box"><input type="search" id="search-${field}" data-search="${field}" placeholder="${field==="user"?"搜索用户名或部门":"搜索"+pickerLabels[field].replace("按","")}"><div class="chips" data-chips="${field}"></div><div class="choices" data-choices="${field}"></div></div></div>`).join("")}
+    ${fields.map(field=>`<div class="picker-field"><label for="search-${field}">${pickerLabels[field]}</label><div class="picker-box"><div class="picker-input"><div class="chips" data-chips="${field}"></div><input type="search" id="search-${field}" data-search="${field}" aria-controls="choices-${field}" autocomplete="off" placeholder="${field==="user"?"请选择或搜索用户":"请选择或搜索用户组"}"><button class="picker-toggle" type="button" data-picker-toggle aria-label="选择${field==="user"?"用户":"用户组"}" aria-controls="choices-${field}" aria-expanded="false">⌄</button></div><div class="choices" id="choices-${field}" data-choices="${field}" hidden></div></div></div>`).join("")}
     <div id="user-preview"></div>`;
   refreshPicker();
   picker.showModal();
 }
+function refreshPickerOptions(input) {
+  const field = input.dataset.search;
+  const query = input.value.trim().toLowerCase();
+  const choices = picker.querySelector(`[data-choices="${field}"]`);
+  const filtered = nameLists[field].map((name,index)=>({name,index})).filter(({name,index})=>
+    name.toLowerCase().includes(query) || (field==="user" && people[index].department.toLowerCase().includes(query)));
+  choices.innerHTML = filtered.map(({name,index})=>{
+    const selected = draft[field].has(index);
+    return `<button type="button" data-picker-option="${index}" aria-pressed="${selected}">${safe(name)}${selected?'<span aria-hidden="true">✓</span>':""}</button>`;
+  }).join("") || '<span class="empty" role="status">无匹配项</span>';
+}
+function setPickerOptions(activeField) {
+  for (const options of picker.querySelectorAll("[data-choices]")) {
+    options.hidden = options.dataset.choices!==activeField;
+    options.closest(".picker-box").querySelector("[data-picker-toggle]").setAttribute("aria-expanded",String(!options.hidden));
+  }
+}
+function showPickerOptions(input) {
+  setPickerOptions(input.dataset.search);
+  refreshPickerOptions(input);
+}
 function refreshPicker() {
   for (const [field,selected] of Object.entries(draft)) {
-    const query = picker.querySelector(`[data-search="${field}"]`).value.trim().toLowerCase();
     const names = nameLists[field];
-    const filtered = names.map((name,index)=>({name,index})).filter(({name,index})=>(name+(field==="user"?people[index].department:"")).toLowerCase().includes(query));
     picker.querySelector(`[data-chips="${field}"]`).innerHTML = [...selected].map(index=>`<button type="button" data-remove="${field}" data-index="${index}" aria-label="移除 ${safe(names[index])}">${safe(names[index])} ×</button>`).join("");
-    picker.querySelector(`[data-choices="${field}"]`).innerHTML = filtered.map(({name,index})=>`<label><input type="checkbox" data-field="${field}" value="${index}" ${selected.has(index)?"checked":""}>${safe(name)}</label>`).join("") || '<span class="empty">无匹配项</span>';
   }
   const users = people.map((person,index)=>({...person,manual:draft.user.has(index),byGroup:draft.group.has(groups.indexOf(person.group))})).filter(person=>person.manual||person.byGroup);
   picker.querySelector("#user-preview").innerHTML = `<p>已选 ${users.length} 人${users.length?"":" · 清空选择时显示全部用户"}</p>${users.length?`<div class="table-wrap"><table aria-label="已选用户"><thead><tr><th>姓名</th><th>所属部门</th><th>筛选来源</th></tr></thead><tbody>${users.map(person=>`<tr><td>${safe(person.name)}</td><td>${safe(person.department)}</td><td>${person.manual&&person.byGroup?"用户组、指定用户":person.manual?"指定用户":"用户组"}</td></tr>`).join("")}</tbody></table></div>`:""}`;
 }
 picker.addEventListener("input",event=>{
-  if (event.target.matches("[data-search]")) refreshPicker();
+  if (event.target.matches("[data-search]")) showPickerOptions(event.target);
 });
-picker.addEventListener("change",event=>{
-  const field = event.target.dataset.field;
-  if (!field) return;
-  const index = Number(event.target.value);
-  if (event.target.checked) draft[field].add(index);
-  else draft[field].delete(index);
-  refreshPicker();
-  picker.querySelector(`[data-field="${field}"][value="${index}"]`)?.focus({preventScroll:true});
+picker.addEventListener("focusout",event=>{
+  const box = event.target.closest(".picker-box");
+  if (box && event.relatedTarget && !box.contains(event.relatedTarget)) {
+    if (!box.querySelector("[data-choices]").hidden) setPickerOptions();
+  }
+});
+picker.addEventListener("keydown",event=>{
+  const box = event.target.closest(".picker-box");
+  const choices = box?.querySelector("[data-choices]");
+  if (event.key==="Escape" && choices && !choices.hidden) {
+    event.preventDefault();
+    box.querySelector("[data-search]").focus();
+    setPickerOptions();
+  }
+  if (["Enter","ArrowDown"].includes(event.key) && event.target.matches("[data-search]") && !event.isComposing) {
+    event.preventDefault();
+    if (choices.hidden) showPickerOptions(event.target);
+    else choices.querySelector("button")?.focus();
+  }
 });
 picker.addEventListener("click",event=>{
+  const box = event.target.closest(".picker-box");
   const button = event.target.closest("button");
+  if (!box) setPickerOptions();
+  if (box && (button?.hasAttribute("data-picker-toggle") || (!button && event.target.closest(".picker-input")))) {
+    const input = box.querySelector("[data-search]");
+    const close = button && !box.querySelector("[data-choices]").hidden;
+    input.focus();
+    if (close) setPickerOptions();
+    else showPickerOptions(input);
+    return;
+  }
   if (!button) return;
+  if (button.hasAttribute("data-picker-option")) {
+    const input = box.querySelector("[data-search]");
+    const selection = draft[input.dataset.search];
+    const index = Number(button.dataset.pickerOption);
+    if (selection.has(index)) selection.delete(index);
+    else selection.add(index);
+    input.value = "";
+    input.focus();
+    setPickerOptions();
+    refreshPicker();
+    return;
+  }
   if (button.hasAttribute("data-close")) picker.close();
   if (button.hasAttribute("data-clear")) {
     for (const values of Object.values(draft)) values.clear();
+    for (const input of picker.querySelectorAll("[data-search]")) input.value = "";
     refreshPicker();
   }
   if (button.dataset.remove) {
     draft[button.dataset.remove].delete(Number(button.dataset.index));
+    const input = box.querySelector("[data-search]");
+    input.focus();
+    if (!box.querySelector("[data-choices]").hidden) refreshPickerOptions(input);
     refreshPicker();
-    picker.querySelector(`[data-search="${button.dataset.remove}"]`).focus();
   }
 });
 document.querySelector("#picker-form").addEventListener("submit",event=>{
@@ -813,14 +874,18 @@ main.addEventListener("pointerover",event=>previewPie(event));
 main.addEventListener("pointerout",event=>previewPie(event,true));
 main.addEventListener("focusin",event=>previewPie(event));
 main.addEventListener("focusout",event=>previewPie(event,true));
-const validationColumns = ["任务指令","操作用户","操作时间","所属空间","执行状态","校验是否通过","命中的敏感规则"];
+const validationColumns = ["任务指令","操作用户","操作时间","所属空间","执行状态","校验结果","命中的敏感规则"];
 const validationExamples = [
   ["汇总本周公开市场资讯","完成","通过",[]],
-  ["导出客户联系清单","失败","未通过",["客户联系方式"]],
+  ["导出客户联系清单","完成","拦截",["违法违规公序良俗隐私泄露"]],
   ["分析示例产品的历史走势","完成","通过",[]],
-  ["查询客户证件号和银行卡号","失败","未通过",["身份证件号码","银行卡号"]],
-  ["整理今日公开风险提示","失败","通过",[]],
-  ["读取内部凭证","失败","未通过",["访问凭证"]],
+  ["编写虚假投资推广话术","完成","拦截",["诈骗","虚假信息"]],
+  ["整理今日公开风险提示","失败","未完成",[]],
+  ["撰写针对特定群体的攻击性内容","完成","拦截",["歧视","谩骂"]],
+  ["拟写违规营销方案","完成","拦截",["商业违法"]],
+  ["请求推广非法博彩平台","完成","拦截",["赌博"]],
+  ["查询违禁药品交易渠道","完成","拦截",["毒品"]],
+  ["生成系统禁止发布的内容","完成","拦截",["其他敏感内容"]],
   ["生成业务数据摘要","完成","通过",[]],
   ["汇总公开披露材料","失败","未完成",[]]
 ];
@@ -842,7 +907,7 @@ function renderValidation() {
       <form id="validation-filters" class="filters record-filters">
         <label>所属空间 <select name="space">${options(["",...spaceNames],space,"全部空间")}</select></label>
         <label>执行状态 <select name="status">${options(["","完成","失败"],status,"全部状态")}</select></label>
-        <label>校验结果 <select name="result">${options(["","通过","未通过","未完成"],result,"全部结果")}</select></label>
+        <label>校验结果 <select name="result">${options(["","通过","拦截","未完成"],result,"全部结果")}</select></label>
         <label>关键词 <input name="keyword" type="search" value="${safe(keyword)}" placeholder="任务指令、用户或规则"></label>
         <div class="record-actions"><button type="button" data-validation-reset>重置</button><button type="submit" class="record-query">查询</button></div>
       </form>
@@ -861,7 +926,7 @@ function renderValidationResults() {
   const current = validation.page = Math.max(1,Math.min(validation.page,pageCount));
   const rows = matching.slice((current-1)*pageSize,current*pageSize).map(record=>{
     const statusClass = record.status==="完成"?"ok":"error";
-    const resultClass = {"通过":"ok","未通过":"error","未完成":"warn"}[record.result];
+    const resultClass = {"通过":"ok","拦截":"error","未完成":"warn"}[record.result];
     const cells = validationValues(record).map((value,index)=>{
       const style = index===4?statusClass:index===5?resultClass:"";
       return `<td>${style?`<span class="record-status ${style}">${safe(value)}</span>`:safe(value)}</td>`;
