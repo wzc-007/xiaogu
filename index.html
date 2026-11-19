@@ -24,7 +24,7 @@ a{color:inherit;text-decoration:none}
 .rail-subnav{list-style:none;margin:0;padding:0}
 .rail-subnav + .rail-label{margin-top:16px}
 .nav-link{display:flex;align-items:center;gap:9px;height:42px;margin:4px 10px;padding:0 12px;border-radius:5px;color:#506079;border-right:2px solid transparent}
-@media(min-width:641px){.rail-subnav .nav-link{padding-inline-start:30px;white-space:nowrap}}
+@media(min-width:641px){.rail-subnav .nav-link{padding-inline-start:30px;white-space:normal;height:auto;min-height:42px;padding-block:8px}}
 .nav-link:hover{background:#f6f8fc}
 .nav-link[aria-current=page]{background:var(--gold-bg);color:#946b2d;border-right-color:#c39c5b;font-weight:700}
 .shell{margin-left:var(--rail)}
@@ -46,7 +46,7 @@ a{color:inherit;text-decoration:none}
 .record-query:hover{background:#a97639;color:white;border-color:#a97639}
 .record-table th{background:#f7f7f8}
 .record-table td:first-child{white-space:normal;min-width:210px}
-.record-table td:nth-child(7){white-space:normal;min-width:125px}
+.record-table td:nth-child(6){white-space:normal;min-width:125px}
 .record-status{display:inline-block;padding:1px 7px;border:1px solid currentColor;border-radius:3px;font-size:12px}
 .record-status.ok{color:#16865d;background:#f0fbf5}
 .record-status.warn{color:#a86b2b;background:#fff7e9}
@@ -202,7 +202,7 @@ input[type=checkbox]{accent-color:var(--blue)}
   <nav aria-label="管理后台导航">
     <div class="rail-label" id="rail-buddy"><span aria-hidden="true">▤</span> Buddy 开放中心 <span aria-hidden="true">⌃</span></div>
     <ul class="rail-subnav" aria-labelledby="rail-buddy">
-      <li><a class="nav-link" data-page="validation" href="#validation"><span aria-hidden="true">▣</span>提问校验记录</a></li>
+      <li><a class="nav-link" data-page="validation" href="#validation"><span aria-hidden="true">▣</span>外网模型事前检测记录</a></li>
     </ul>
     <div class="rail-label" id="rail-dashboard"><span aria-hidden="true">▤</span> 数据大屏 <span aria-hidden="true">⌃</span></div>
     <ul class="rail-subnav" aria-labelledby="rail-dashboard">
@@ -213,9 +213,20 @@ input[type=checkbox]{accent-color:var(--blue)}
 </aside>
 <div class="shell">
   <header class="top"><div class="crumb"><span id="crumb-group">数据大屏</span><i>/</i><strong id="crumb">全局总览</strong></div><span class="demo">模拟数据</span></header>
-  <nav class="tabs" aria-label="页面切换"><a data-page="overview" href="#overview">全局总览</a><a data-page="token" href="#token">Token 消耗统计</a><a data-page="validation" href="#validation">提问校验记录</a></nav>
+  <nav class="tabs" aria-label="页面切换"><a data-page="overview" href="#overview">全局总览</a><a data-page="token" href="#token">Token 消耗统计</a><a data-page="validation" href="#validation">外网模型事前检测记录</a></nav>
   <main id="main"></main>
 </div>
+<dialog id="validation-export-dialog" aria-labelledby="validation-export-title" style="max-width:480px">
+  <form id="validation-export-form">
+    <header class="dialog-head"><h2 id="validation-export-title">导出时间范围</h2><button type="button" data-export-cancel aria-label="关闭">×</button></header>
+    <div class="dialog-body" style="display:grid;gap:16px;padding:24px 18px">
+      <label style="display:grid;gap:8px">开始时间<input name="start" type="datetime-local" required></label>
+      <label style="display:grid;gap:8px">结束时间<input name="end" type="datetime-local" required></label>
+      <p id="validation-export-error" role="alert" style="color:#cf3948;margin:0" hidden></p>
+    </div>
+    <footer class="dialog-foot"><button type="button" data-export-cancel>取消</button><button class="primary" type="submit">确认</button></footer>
+  </form>
+</dialog>
 <dialog id="picker" aria-labelledby="picker-title">
   <form id="picker-form">
     <header class="dialog-head"><h2 id="picker-title"></h2><button type="button" data-close aria-label="关闭">×</button></header>
@@ -298,11 +309,12 @@ const metrics = [
   {id:"rate",label:"请求成功率",unit:"%",read:a=>a.requests?a.successes/a.requests*100:null,format:decimal},
   {id:"answer",label:"平均回答耗时",unit:"s",read:a=>a.successes?a.answer/a.successes:null,format:decimal}
 ];
-const empty = () => ({requests:0,input:0,output:0,successes:0,effective:0,first:0,answer:0,users:new Set(),modules:moduleNames.map(()=>new Set())});
+const empty = () => ({requests:0,input:0,output:0,successes:0,effective:0,first:0,answer:0,users:new Set(),modules:moduleNames.map(()=>new Set()),moduleTokens:moduleNames.map(()=>0)});
 function add(stats,record) {
   for (const key of ["requests","input","output","successes","effective","first","answer"]) stats[key] += record[key];
   stats.users.add(record.user);
   stats.modules[record.module].add(record.user);
+  stats.moduleTokens[record.module] += record.input+record.output;
 }
 function summarize(rows) {
   const stats = empty();
@@ -421,13 +433,13 @@ function renderOverview() {
     ${renderToolbar(overview)}
     ${section("全部整体汇总概览","四大业务模块去重汇总 · 环比上一等长周期",`<div class="grid4">${overviewLabels.map((label,index)=>statCard(label,overviewParts(values[index],index),index,comparison(values[index],earlier[index]))).join("")}</div>`)}
     ${section("覆盖率总览","营业部与营销人员覆盖情况",coverage(rows,previousRows))}
-    ${section("四大业务模块概要","",modules(rows)+overviewChart("activity",overview.modes.activity==="month"?"四大模块月活趋势":"四大模块日活趋势",true)+overviewChart("interactions","全局功能总交互量趋势")+overviewChart("effectiveness","AI 整体服务有效率趋势"))}
-    ${section("Token 消耗分析","",overviewChart("token-total","Token 消耗总量趋势"))}`;
+    ${section("四大业务模块概要","",modules(rows)+overviewChart("activity",overview.modes.activity==="month"?"四大模块月活趋势":"四大模块日活趋势",true)+overviewChart("interactions","全局用户活跃与交互趋势")+overviewChart("effectiveness","AI 整体服务有效率趋势"))}
+    ${section("Token 消耗分析","",overviewChart("token-total",overview.modes["token-total"]==="month"?"四大模块Token消耗月活趋势":"四大模块Token消耗日活趋势"))}`;
   const specs = {
     activity:{series:[...moduleNames,"汇总"].map((name,index)=>({name,color:colors[index],read:a=>index===4?a.users.size:a.modules[index].size})),format:number,unit:"人"},
-    interactions:{series:[{name:"全局功能总交互量",color:colors[0],read:a=>a.requests}],format:number,unit:"次"},
+    interactions:{series:[{name:"全局功能总交互量",color:colors[0],read:a=>a.requests,unit:"次"},{name:"全局去重活跃用户数",color:colors[1],read:a=>a.users.size,axis:"right",unit:"人"}],format:number,unit:"次",dualAxis:true},
     effectiveness:{series:[{name:"AI 整体服务有效率",color:colors[2],read:a=>a.requests?a.effective/a.requests*100:null}],format:decimal,unit:"%",max:100},
-    "token-total":{series:[{name:"Token 消耗总量",color:colors[3],read:a=>a.input+a.output}],format:short,unit:""}
+    "token-total":{series:[...moduleNames,"汇总"].map((name,index)=>({name,color:colors[index],read:a=>index===4?a.input+a.output:a.moduleTokens[index]})),format:short,unit:""}
   };
   for (const [id,spec] of Object.entries(specs)) {
     const mode = overview.modes[id]||"day";
@@ -479,7 +491,7 @@ function renderChart(id,labels,series,spec) {
     tip.innerHTML = `<b>${safe(labels[chart.hover])}</b>` + series.map((item,index)=>{
       if (chart.hidden.has(index)) return "";
       const value = item.values[chart.hover];
-      return `<div><i class="swatch" style="background:${item.color}"></i>${safe(item.name)} · ${value===null?"—":(spec.tipFormat||spec.format)(value)+(spec.unit==="%"?"%":spec.unit?" "+spec.unit:"")}</div>`;
+      return `<div><i class="swatch" style="background:${item.color}"></i>${safe(item.name)} · ${value===null?"—":(spec.tipFormat||spec.format)(value)+((item.unit??spec.unit)==="%"?"%":(item.unit??spec.unit)?" "+(item.unit??spec.unit):"")}</div>`;
     }).join("");
     tip.style.display = "block";
     tip.style.left = Math.max(0,Math.min(canvas.clientWidth-tip.offsetWidth,x+10))+"px";
@@ -519,14 +531,16 @@ function paint({canvas,labels,series,spec,hidden,hover}) {
     return;
   }
   let observedMax = 0;
-  for (const value of values) observedMax = Math.max(observedMax,value);
+  for (const item of visible.filter(item=>item.axis!=="right")) for (const value of item.values) observedMax = Math.max(observedMax,value??0);
   const power = 10**Math.floor(Math.log10(Math.max(1,observedMax)/4));
   const tick = [1,2,2.5,5,10].map(value=>value*power).find(value=>value*4>=observedMax) || 1;
   const max = spec.max || tick*4;
   const tickLabel = value => spec.format(value)+(spec.unit==="%"?"%":"");
   const left = Math.max(34,ctx.measureText(tickLabel(max)).width+14);
-  const right = width-13;
-  const top = 12;
+  const rightValues = visible.filter(item=>item.axis==="right").flatMap(item=>item.values).filter(value=>value!==null);
+  const rightMax = Math.max(4,Math.ceil(Math.max(0,...rightValues)/4)*4);
+  const right = width-(spec.dualAxis?Math.max(46,ctx.measureText(number(rightMax)).width+18):13);
+  const top = spec.dualAxis?25:12;
   const bottom = height-28;
   chart.bounds = {left,right};
   const x = index => labels.length<=1?(left+right)/2:left + (right-left)*index/(labels.length-1);
@@ -544,6 +558,16 @@ function paint({canvas,labels,series,spec,hidden,hover}) {
     ctx.fillStyle = "#7c899d";
     ctx.textAlign = "right";
     ctx.fillText(tickLabel(value),left-7,pos+4);
+  }
+  if (spec.dualAxis) {
+    ctx.textAlign = "left";
+    for (let index=0;index<=4;index++) ctx.fillText(number(rightMax*index/4),right+7,y(max*index/4)+4);
+    ctx.fillStyle = colors[0];
+    ctx.textAlign = "left";
+    ctx.fillText("交互量（次）",left,12);
+    ctx.fillStyle = colors[1];
+    ctx.textAlign = "right";
+    ctx.fillText("活跃用户（人）",right,12);
   }
   ctx.setLineDash([]);
   const axisLabel = index => {
@@ -573,6 +597,7 @@ function paint({canvas,labels,series,spec,hidden,hover}) {
     }
   }
   for (const item of visible) {
+    const seriesY = value => item.axis==="right"?bottom-(bottom-top)*value/rightMax:y(value);
     ctx.strokeStyle = item.color;
     ctx.fillStyle = item.color;
     ctx.lineWidth = 1.9;
@@ -585,12 +610,12 @@ function paint({canvas,labels,series,spec,hidden,hover}) {
         return;
       }
       const pos = x(index);
-      if (last===null) ctx.moveTo(pos,y(value));
+      if (last===null) ctx.moveTo(pos,seriesY(value));
       else if (item.values.length<=90) {
         const middle = (last.x+pos)/2;
-        ctx.bezierCurveTo(middle,last.y,middle,y(value),pos,y(value));
-      } else ctx.lineTo(pos,y(value));
-      last = {x:pos,y:y(value)};
+        ctx.bezierCurveTo(middle,last.y,middle,seriesY(value),pos,seriesY(value));
+      } else ctx.lineTo(pos,seriesY(value));
+      last = {x:pos,y:seriesY(value)};
     });
     ctx.stroke();
     item.values.forEach((value,index)=>{
@@ -598,7 +623,7 @@ function paint({canvas,labels,series,spec,hidden,hover}) {
       const isolated = (item.values[index-1]??null)===null && (item.values[index+1]??null)===null;
       if (item.values.length>7 && !isolated) return;
       ctx.beginPath();
-      ctx.arc(x(index),y(value),2.5,0,Math.PI*2);
+      ctx.arc(x(index),seriesY(value),2.5,0,Math.PI*2);
       ctx.fill();
     });
   }
@@ -874,7 +899,7 @@ main.addEventListener("pointerover",event=>previewPie(event));
 main.addEventListener("pointerout",event=>previewPie(event,true));
 main.addEventListener("focusin",event=>previewPie(event));
 main.addEventListener("focusout",event=>previewPie(event,true));
-const validationColumns = ["任务指令","操作用户","操作时间","所属空间","执行状态","校验结果","命中的敏感规则"];
+const validationColumns = ["任务指令","操作用户","操作时间","所属空间","使用算力","命中的敏感规则"];
 const validationExamples = [
   ["汇总本周公开市场资讯","完成","通过",[]],
   ["导出客户联系清单","完成","拦截",["违法违规公序良俗隐私泄露"]],
@@ -890,53 +915,76 @@ const validationExamples = [
   ["汇总公开披露材料","失败","未完成",[]]
 ];
 const validationRecords = Array.from({length:36},(_,id)=>{
-  const [query,status,result,rules] = validationExamples[id%validationExamples.length];
-  return {id,query,status,result,rules,user:people[id%people.length].name,
+  const sampleIndex = Math.floor(id/2);
+  const exampleIndex = id%2
+    ? [0,2,4,10,11,1][sampleIndex%6]
+    : [1,3,5,6,7,8,9,0,10][sampleIndex%9];
+  const [query,status,result,rules] = validationExamples[exampleIndex];
+  return {id,query,rules,compute:id%2?"外网":"内网",user:people[id%people.length].name,
     time:stamp(endDay+16*3600000-id*47*60000).replace("T"," "),
     space:spaceNames[(id+Math.floor(id/4))%spaceNames.length]};
 });
-const emptyValidationFilters = {space:"",status:"",result:"",keyword:""};
+const emptyValidationFilters = {space:"",compute:"",keyword:""};
 const validation = {filters:{...emptyValidationFilters},page:1};
 function validationValues(record) {
-  return [record.query,record.user,record.time,record.space,record.status,record.result,record.rules.join("、")||"—"];
+  return [record.query,record.user,record.time,record.space,record.compute,record.compute==="内网"?(record.rules.join("、")||"—"):"—"];
 }
+const exportDialog = document.querySelector("#validation-export-dialog");
+const exportForm = document.querySelector("#validation-export-form");
+const exportError = document.querySelector("#validation-export-error");
+exportDialog.addEventListener("click",event=>{
+  if (event.target.closest("[data-export-cancel]")) exportDialog.close();
+});
+exportForm.addEventListener("input",()=>{exportError.hidden=true;});
+exportForm.addEventListener("submit",event=>{
+  event.preventDefault();
+  const start=exportForm.elements.start.value, end=exportForm.elements.end.value;
+  if (!start || !end || start>end) {
+    exportError.textContent="结束时间不能早于开始时间";
+    exportError.hidden=false;
+    return;
+  }
+  const from=start.replace("T"," "),to=end.replace("T"," ");
+  const records=validationRecords.filter(record=>record.time>=from && record.time<=to);
+  if (!records.length) {
+    exportError.textContent="所选时间范围内暂无记录，请重新选择";
+    exportError.hidden=false;
+    return;
+  }
+  downloadCsv([validationColumns,...records.map(validationValues)],`外网模型事前检测记录_${start.slice(0,10)}_${end.slice(0,10)}.csv`);
+  exportDialog.close();
+});
 function renderValidation() {
-  const {space,status,result,keyword} = validation.filters;
-  main.innerHTML = `<h1 class="page-title">提问校验记录</h1>
-    <section class="panel record-panel" aria-label="提问校验结果">
+  const {space,compute,keyword} = validation.filters;
+  main.innerHTML = `<h1 class="page-title">外网模型事前检测记录</h1>
+    <section class="panel record-panel" aria-label="外网模型事前检测结果">
       <form id="validation-filters" class="filters record-filters">
         <label>所属空间 <select name="space">${options(["",...spaceNames],space,"全部空间")}</select></label>
-        <label>执行状态 <select name="status">${options(["","完成","失败"],status,"全部状态")}</select></label>
-        <label>校验结果 <select name="result">${options(["","通过","拦截","未完成"],result,"全部结果")}</select></label>
+        <label>使用算力 <select name="compute">${options(["","内网","外网"],compute,"全部算力")}</select></label>
         <label>关键词 <input name="keyword" type="search" value="${safe(keyword)}" placeholder="任务指令、用户或规则"></label>
-        <div class="record-actions"><button type="button" data-validation-reset>重置</button><button type="submit" class="record-query">查询</button></div>
+        <div class="record-actions"><button type="button" data-validation-bulk-export>导出</button><button type="button" data-validation-reset>重置</button><button type="submit" class="record-query">查询</button></div>
       </form>
       <div id="validation-results"></div>
     </section>`;
   renderValidationResults();
 }
 function renderValidationResults() {
-  const {space,status,result,keyword} = validation.filters;
+  const {space,compute,keyword} = validation.filters;
   const query = keyword.toLowerCase();
   const matching = validationRecords.filter(record=>(!space || record.space===space)
-    && (!status || record.status===status) && (!result || record.result===result)
+    && (!compute || record.compute===compute)
     && [record.query,record.user,...record.rules].some(value=>value.toLowerCase().includes(query)));
   const pageSize = 20;
   const pageCount = Math.max(1,Math.ceil(matching.length/pageSize));
   const current = validation.page = Math.max(1,Math.min(validation.page,pageCount));
   const rows = matching.slice((current-1)*pageSize,current*pageSize).map(record=>{
-    const statusClass = record.status==="完成"?"ok":"error";
-    const resultClass = {"通过":"ok","拦截":"error","未完成":"warn"}[record.result];
-    const cells = validationValues(record).map((value,index)=>{
-      const style = index===4?statusClass:index===5?resultClass:"";
-      return `<td>${style?`<span class="record-status ${style}">${safe(value)}</span>`:safe(value)}</td>`;
-    }).join("");
+    const cells = validationValues(record).map(value=>`<td>${safe(value)}</td>`).join("");
     return `<tr>${cells}<td><button class="record-export" data-validation-export="${record.id}" aria-label="导出第 ${record.id+1} 条记录">导出</button></td></tr>`;
   }).join("");
   main.querySelector("#validation-results").innerHTML = `
-    <div class="table-wrap"><table class="record-table" aria-label="提问校验记录">
+    <div class="table-wrap"><table class="record-table" aria-label="外网模型事前检测记录">
       <thead><tr>${[...validationColumns,"操作"].map(label=>`<th scope="col">${label}</th>`).join("")}</tr></thead>
-      <tbody>${rows||'<tr><td class="empty" colspan="8">没有符合条件的记录</td></tr>'}</tbody>
+      <tbody>${rows||'<tr><td class="empty" colspan="7">没有符合条件的记录</td></tr>'}</tbody>
     </table></div>
     <div class="table-footer"><span role="status">共 ${matching.length} 条 · 每页 ${pageSize} 条</span><div>
       <button data-validation-page="${current-1}" ${current===1?"disabled":""}>上一页</button>
@@ -953,7 +1001,7 @@ main.addEventListener("submit",event=>{
   renderValidationResults();
 });
 let page = "";
-const pageNames = {overview:"全局总览",token:"Token 消耗统计",validation:"提问校验记录"};
+const pageNames = {overview:"全局总览",token:"Token 消耗统计",validation:"外网模型事前检测记录"};
 function render() {
   charts.clear();
   if (page==="token") renderToken();
@@ -1017,6 +1065,12 @@ main.addEventListener("click",event=>{
   }
   const button = event.target.closest("button");
   if (!button) return;
+  if (button.hasAttribute("data-validation-bulk-export")) {
+    exportForm.reset();
+    exportError.hidden=true;
+    exportDialog.showModal();
+    return;
+  }
   if (button.hasAttribute("data-validation-reset")) {
     validation.filters = {...emptyValidationFilters};
     validation.page = 1;
@@ -1032,7 +1086,7 @@ main.addEventListener("click",event=>{
   }
   if (button.dataset.validationExport!==undefined) {
     const record = validationRecords[Number(button.dataset.validationExport)];
-    downloadCsv([validationColumns,validationValues(record)],`提问校验记录_${record.id+1}.csv`);
+    downloadCsv([validationColumns,validationValues(record)],`外网模型事前检测记录_${record.id+1}.csv`);
     return;
   }
   const {preset,chartMode,mode,legendId,series,dimension,tablePage,rankPage,picker:filter} = button.dataset;
