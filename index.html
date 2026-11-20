@@ -216,6 +216,11 @@ input[type=checkbox]{accent-color:var(--blue)}
   <nav class="tabs" aria-label="页面切换"><a data-page="overview" href="#overview">全局总览</a><a data-page="token" href="#token">Token 消耗统计</a><a data-page="validation" href="#validation">外网模型事前检测记录</a></nav>
   <main id="main"></main>
 </div>
+<dialog id="validation-detail-dialog" aria-labelledby="validation-detail-title">
+  <header class="dialog-head"><h2 id="validation-detail-title">任务详情</h2><button type="button" data-detail-close aria-label="关闭任务详情">×</button></header>
+  <div class="dialog-body"><dl id="validation-detail-content" style="margin:0;display:grid;grid-template-columns:120px minmax(0,1fr);gap:0"></dl></div>
+  <footer class="dialog-foot"><button type="button" data-detail-close>关闭</button></footer>
+</dialog>
 <dialog id="validation-export-dialog" aria-labelledby="validation-export-title" style="max-width:480px">
   <form id="validation-export-form">
     <header class="dialog-head"><h2 id="validation-export-title">导出时间范围</h2><button type="button" data-export-cancel aria-label="关闭">×</button></header>
@@ -294,8 +299,8 @@ const overview = {preset:"近30日",start:iso(endDay-29*day),end:iso(endDay),cha
 const tokenFrom = endDay-29*day;
 const tokenTo = endDay+day;
 const token = {
-  preset:"近30日",start:iso(tokenFrom),end:iso(tokenTo-day),
-  granularity:"day",space:new Set(),model:new Set(),group:new Set(),user:new Set(),
+  preset:"近30日",start:iso(tokenFrom)+"T00:00",end:iso(tokenTo-day)+"T23:59",
+  granularity:"auto",granularityNotice:"",space:new Set(),model:new Set(),group:new Set(),user:new Set(),
   dimension:"space",metric:"total",page:1,rankPage:1
 };
 const windows = {"今日":1,"昨日":1,"近7日":7,"近30日":30};
@@ -309,12 +314,13 @@ const metrics = [
   {id:"rate",label:"请求成功率",unit:"%",read:a=>a.requests?a.successes/a.requests*100:null,format:decimal},
   {id:"answer",label:"平均回答耗时",unit:"s",read:a=>a.successes?a.answer/a.successes:null,format:decimal}
 ];
-const empty = () => ({requests:0,input:0,output:0,successes:0,effective:0,first:0,answer:0,users:new Set(),modules:moduleNames.map(()=>new Set()),moduleTokens:moduleNames.map(()=>0)});
+const empty = () => ({requests:0,input:0,output:0,successes:0,effective:0,first:0,answer:0,users:new Set(),modules:moduleNames.map(()=>new Set()),moduleTokens:moduleNames.map(()=>0),moduleRequests:moduleNames.map(()=>0)});
 function add(stats,record) {
   for (const key of ["requests","input","output","successes","effective","first","answer"]) stats[key] += record[key];
   stats.users.add(record.user);
   stats.modules[record.module].add(record.user);
   stats.moduleTokens[record.module] += record.input+record.output;
+  stats.moduleRequests[record.module] += record.requests;
 }
 function summarize(rows) {
   const stats = empty();
@@ -335,15 +341,32 @@ function metricText(metric,stats,condensed=false) {
 function presetDates(state, preset) {
   const stop = preset === "昨日" ? endDay-day : endDay;
   const start = stop - (windows[preset]-1)*day;
-  state.start = iso(start);
-  state.end = iso(stop);
+  state.start = iso(start)+(state===token?"T00:00":"");
+  state.end = iso(stop)+(state===token?"T23:59":"");
+}
+const grainNames={five:"5分钟",hour:"小时",day:"日",month:"月"};
+function tokenBounds() { return [Date.parse(token.start+"Z"),Date.parse(token.end+"Z")+60000]; }
+function tokenSpan() { return Math.max(60000,Date.parse(token.end+"Z")-Date.parse(token.start+"Z")); }
+function automaticGrain() {
+  const span=tokenSpan();
+  return span<=3600000?"five":span<=day?"hour":span<=90*day?"day":"month";
+}
+function grainAllowed(value) {
+  return value==="auto" || value==="month" || tokenSpan()<={five:3600000,hour:day,day:90*day}[value];
+}
+function validateGrain() {
+  token.granularityNotice="";
+  if (!grainAllowed(token.granularity)) {
+    token.granularity="auto";
+    token.granularityNotice=`时间范围已扩大，已切换为自动（按${grainNames[automaticGrain()]}）`;
+  }
 }
 function dateFilter(state) {
   return `
-    <div class="segment" aria-label="日期快捷筛选">${[...Object.keys(windows),"自定义"].map(label=>`<button data-preset="${label}" aria-pressed="${state.preset===label}">${label}</button>`).join("")}</div>
+    <div class="segment" aria-label="日期快捷筛选">${[...(state===token?["近7日","近30日"]:Object.keys(windows)),"自定义"].map(label=>`<button data-preset="${label}" aria-pressed="${state.preset===label}">${label}</button>`).join("")}</div>
     <div class="date-range" ${state.preset==="自定义"?"":"hidden"}>
-      <input type="date" aria-label="开始时间" data-start value="${state.start}" required><span>至</span>
-      <input type="date" aria-label="结束时间" data-end value="${state.end}" required>
+      <input type="${state===token?"datetime-local":"date"}" step="${state===token?60:1}" aria-label="开始时间" data-start value="${state.start}" required><span>至</span>
+      <input type="${state===token?"datetime-local":"date"}" step="${state===token?60:1}" aria-label="结束时间" data-end value="${state.end}" required>
     </div>
     <p id="notice" role="status"></p>`;
 }
@@ -420,6 +443,7 @@ function chartPanel(id,title,control="",compactHeight=false) {
 }
 function overviewChart(id,title,active=false) {
   const mode = overview.modes[id]||"day";
+  if (id==="activity") return chartPanel(id,title,`<div style="display:flex;gap:12px;flex-wrap:wrap"><div class="segment" aria-label="趋势指标"><button data-activity-metric="users" aria-pressed="${overview.activityMetric!=="interactions"}">活跃用户数</button><button data-activity-metric="interactions" aria-pressed="${overview.activityMetric==="interactions"}">交互量</button></div><div class="segment" aria-label="趋势时间粒度">${["day","month"].map((value,index)=>`<button data-chart-mode="activity" data-mode="${value}" aria-pressed="${mode===value}">${["按日","按月"][index]}</button>`).join("")}</div></div>`);
   return chartPanel(id,title,`<div class="segment" aria-label="${title}时间粒度">${["day","month"].map((value,index)=>`<button data-chart-mode="${id}" data-mode="${value}" aria-pressed="${mode===value}">${(active?["日活","月活"]:["按日","按月"])[index]}</button>`).join("")}</div>`);
 }
 function renderOverview() {
@@ -433,11 +457,10 @@ function renderOverview() {
     ${renderToolbar(overview)}
     ${section("全部整体汇总概览","四大业务模块去重汇总 · 环比上一等长周期",`<div class="grid4">${overviewLabels.map((label,index)=>statCard(label,overviewParts(values[index],index),index,comparison(values[index],earlier[index]))).join("")}</div>`)}
     ${section("覆盖率总览","营业部与营销人员覆盖情况",coverage(rows,previousRows))}
-    ${section("四大业务模块概要","",modules(rows)+overviewChart("activity",overview.modes.activity==="month"?"四大模块月活趋势":"四大模块日活趋势",true)+overviewChart("interactions","全局用户活跃与交互趋势")+overviewChart("effectiveness","AI 整体服务有效率趋势"))}
+    ${section("四大业务模块概要","",modules(rows)+overviewChart("activity","四大模块活跃与交互趋势")+overviewChart("effectiveness","AI 整体服务有效率趋势"))}
     ${section("Token 消耗分析","",overviewChart("token-total",overview.modes["token-total"]==="month"?"四大模块Token消耗月活趋势":"四大模块Token消耗日活趋势"))}`;
   const specs = {
-    activity:{series:[...moduleNames,"汇总"].map((name,index)=>({name,color:colors[index],read:a=>index===4?a.users.size:a.modules[index].size})),format:number,unit:"人"},
-    interactions:{series:[{name:"全局功能总交互量",color:colors[0],read:a=>a.requests,unit:"次"},{name:"全局去重活跃用户数",color:colors[1],read:a=>a.users.size,axis:"right",unit:"人"}],format:number,unit:"次",dualAxis:true},
+    activity:{series:[...moduleNames,"汇总"].map((name,index)=>({name,color:colors[index],read:a=>overview.activityMetric==="interactions"?(index===4?a.requests:a.moduleRequests[index]):(index===4?a.users.size:a.modules[index].size)})),format:number,unit:overview.activityMetric==="interactions"?"次":"人"},
     effectiveness:{series:[{name:"AI 整体服务有效率",color:colors[2],read:a=>a.requests?a.effective/a.requests*100:null}],format:decimal,unit:"%",max:100},
     "token-total":{series:[...moduleNames,"汇总"].map((name,index)=>({name,color:colors[index],read:a=>index===4?a.input+a.output:a.moduleTokens[index]})),format:short,unit:""}
   };
@@ -666,10 +689,12 @@ function tokenFilters() {
     <div class="filters">${dateFilter(token)}</div>
     <div class="filters">
       <label class="filter-label" for="granularity">时间粒度</label>
-      <select id="granularity" data-token-select="granularity">${Object.entries({five:"5 分钟",hour:"小时",day:"日",month:"月"}).map(([id,label])=>`<option value="${id}" ${id===token.granularity?"selected":""}>${label}</option>`).join("")}</select>
+      <select id="granularity" data-token-select="granularity">${Object.entries({auto:`自动（按${grainNames[automaticGrain()]}）`,...grainNames}).map(([id,label])=>`<option value="${id}" ${id===token.granularity?"selected":""} ${grainAllowed(id)?"":"disabled"}>${label}${grainAllowed(id)?"":id==="five"?"（限1小时内）":id==="hour"?"（限1天内）":"（限90天内）"}</option>`).join("")}</select>
       <span class="filter-label">${dimensions[token.dimension]}</span>
       ${token.dimension==="user"?`<button class="filter-btn" data-picker="user"><span>${users}</span><span aria-hidden="true">⌄</span></button>`:filterDropdown(token.dimension)}
       <button data-reset>重置筛选</button>
+      <span class="filter-label" title="5分钟粒度限1小时内，小时粒度限1天内，日粒度限90天内；请缩短时间范围后选择更细粒度。">ⓘ 5分钟限1小时内 · 小时限1天内 · 日限90天内</span>
+      <span role="status" style="color:#b5792e">${safe(token.granularityNotice)}</span>
     </div>
   </div>`;
 }
@@ -731,8 +756,8 @@ function renderToken() {
   renderTokenResults();
 }
 function renderTokenResults() {
-  const from = parseDay(token.start);
-  const to = parseDay(token.end)+day;
+  const [from,to] = tokenBounds();
+  const grain = token.granularity==="auto"?automaticGrain():token.granularity;
   const byUser = token.dimension==="user";
   const selected = byUser?selectedTokenUsers():token[token.dimension];
   const rows = records.filter(row=>row.time>=from && row.time<to
@@ -742,7 +767,7 @@ function renderTokenResults() {
   const trendLabel = byUser?`用户调用趋势 · ${selected.size} 位用户`:dimensions[token.dimension]+"调用趋势";
   const trend = chartPanel("dimension-trend",trendLabel,`<select data-token-select="metric" aria-label="趋势指标">${metrics.map(item=>`<option value="${item.id}" ${item===metric?"selected":""}>${byUser?userTrendLabel(item):item.label}</option>`).join("")}</select>`,true);
   main.querySelector("#token-results").innerHTML = trend+dimensionTable(entries);
-  const data = buckets(rows,from,to,token.granularity);
+  const data = buckets(rows,from,to,grain);
   const labels = data.map(item=>item.label);
   const tokenMetric = ["input","output","total"].includes(metric.id);
   const format = tokenMetric?short:byUser?decimal:metric.format;
@@ -754,7 +779,7 @@ function renderTokenResults() {
       return metric.read(stats);
     })
   }]:entries.map((entry,index)=>{
-    const values = buckets(rows.filter(row=>row[token.dimension]===entry.index),from,to,token.granularity);
+    const values = buckets(rows.filter(row=>row[token.dimension]===entry.index),from,to,grain);
     return {name:entry.name,color:colors[index],values:values.map(item=>metric.read(item.stats))};
   });
   const spec = {format,unit:metric.unit,max:metric.id==="rate"?100:null};
@@ -929,6 +954,9 @@ const validation = {filters:{...emptyValidationFilters},page:1};
 function validationValues(record) {
   return [record.query,record.user,record.time,record.space,record.compute,record.compute==="内网"?(record.rules.join("、")||"—"):"—"];
 }
+document.querySelector("#validation-detail-dialog").addEventListener("click",event=>{
+  if (event.target.closest("[data-detail-close]")) event.currentTarget.close();
+});
 const exportDialog = document.querySelector("#validation-export-dialog");
 const exportForm = document.querySelector("#validation-export-form");
 const exportError = document.querySelector("#validation-export-error");
@@ -979,7 +1007,7 @@ function renderValidationResults() {
   const current = validation.page = Math.max(1,Math.min(validation.page,pageCount));
   const rows = matching.slice((current-1)*pageSize,current*pageSize).map(record=>{
     const cells = validationValues(record).map(value=>`<td>${safe(value)}</td>`).join("");
-    return `<tr>${cells}<td><button class="record-export" data-validation-export="${record.id}" aria-label="导出第 ${record.id+1} 条记录">导出</button></td></tr>`;
+    return `<tr>${cells}<td><button class="record-export" data-validation-view="${record.id}" aria-label="查看第 ${record.id+1} 条记录">查看</button></td></tr>`;
   }).join("");
   main.querySelector("#validation-results").innerHTML = `
     <div class="table-wrap"><table class="record-table" aria-label="外网模型事前检测记录">
@@ -1084,9 +1112,17 @@ main.addEventListener("click",event=>{
     main.querySelector('[data-validation-page][aria-current="page"]').focus({preventScroll:true});
     return;
   }
-  if (button.dataset.validationExport!==undefined) {
-    const record = validationRecords[Number(button.dataset.validationExport)];
-    downloadCsv([validationColumns,validationValues(record)],`外网模型事前检测记录_${record.id+1}.csv`);
+  if (button.dataset.validationView!==undefined) {
+    const record = validationRecords[Number(button.dataset.validationView)];
+    const values = validationValues(record);
+    document.querySelector("#validation-detail-content").innerHTML=validationColumns.map((label,index)=>`<dt style="padding:14px 0;color:var(--muted);border-bottom:1px solid var(--line)">${safe(label)}</dt><dd style="margin:0;padding:14px 0;overflow-wrap:anywhere;white-space:pre-wrap;border-bottom:1px solid var(--line)">${safe(values[index])}</dd>`).join("");
+    document.querySelector("#validation-detail-dialog").showModal();
+    return;
+  }
+  if (button.dataset.activityMetric) {
+    overview.activityMetric=button.dataset.activityMetric;
+    render();
+    main.querySelector(`[data-activity-metric="${overview.activityMetric}"]`).focus({preventScroll:true});
     return;
   }
   const {preset,chartMode,mode,legendId,series,dimension,tablePage,rankPage,picker:filter} = button.dataset;
@@ -1095,6 +1131,7 @@ main.addEventListener("click",event=>{
     state.preset = preset;
     if (preset!=="自定义") presetDates(state,preset);
     if (state===token) {
+      validateGrain();
       token.page = 1;
       refreshTokenFilters();
     } else render();
@@ -1130,7 +1167,7 @@ main.addEventListener("click",event=>{
   } else if (filter==="user") openUserPicker();
   else if (button.hasAttribute("data-export")) exportOverview();
   else if (button.hasAttribute("data-reset")) {
-    Object.assign(token,{preset:"近30日",granularity:"day",page:1});
+    Object.assign(token,{preset:"近30日",granularity:"auto",granularityNotice:"",page:1});
     presetDates(token,token.preset);
     token[token.dimension].clear();
     if (token.dimension==="user") token.group.clear();
@@ -1163,17 +1200,22 @@ main.addEventListener("change",event=>{
     const state = page==="token"?token:overview;
     Object.assign(state,{start,end,preset:"自定义"});
     if (state===token) {
-      notice.textContent = "";
+      validateGrain();
       token.page = 1;
-      renderTokenResults();
+      refreshTokenFilters();
     } else render();
   } else if (input.dataset.overviewFilter) {
     overview[input.dataset.overviewFilter] = input.value;
     render();
     main.querySelector(`[data-overview-filter="${input.dataset.overviewFilter}"]`)?.focus({preventScroll:true});
   } else if (input.dataset.tokenSelect) {
+    if (input.dataset.tokenSelect==="granularity" && !grainAllowed(input.value)) return;
     token[input.dataset.tokenSelect] = input.value;
-    renderTokenResults();
+    if (input.dataset.tokenSelect==="granularity") {
+      token.granularityNotice="";
+      refreshTokenFilters();
+      main.querySelector("#granularity").focus({preventScroll:true});
+    } else renderTokenResults();
     if (input.dataset.tokenSelect==="metric") main.querySelector('[data-token-select="metric"]')?.focus({preventScroll:true});
   }
 });
